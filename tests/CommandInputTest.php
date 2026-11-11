@@ -61,7 +61,6 @@ class CommandInputTest extends PackageTestCase
         $input = new ArrayInput($parameters, $command->getDefinition());
         $input->bind($command->getDefinition());
         $property = new ReflectionProperty($command, 'input');
-        $property->setAccessible(true);
         $property->setValue($command, $input);
     }
 
@@ -72,7 +71,6 @@ class CommandInputTest extends PackageTestCase
     private function transfer(DotenvSetKeyCommand $command)
     {
         $method = new ReflectionMethod($command, 'transferInputsToProperties');
-        $method->setAccessible(true);
         $method->invoke($command);
     }
 
@@ -84,7 +82,6 @@ class CommandInputTest extends PackageTestCase
     private function read(DotenvSetKeyCommand $command, $name)
     {
         $property = new ReflectionProperty($command, $name);
-        $property->setAccessible(true);
 
         return $property->getValue($command);
     }
