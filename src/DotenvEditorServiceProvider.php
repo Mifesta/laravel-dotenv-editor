@@ -3,84 +3,47 @@
 namespace Mifesta\DotenvEditor;
 
 use Illuminate\Support\ServiceProvider;
+use Mifesta\DotenvEditor\Console\Commands\DotenvBackupCommand;
+use Mifesta\DotenvEditor\Console\Commands\DotenvDeleteKeyCommand;
+use Mifesta\DotenvEditor\Console\Commands\DotenvGetBackupsCommand;
+use Mifesta\DotenvEditor\Console\Commands\DotenvGetKeysCommand;
+use Mifesta\DotenvEditor\Console\Commands\DotenvRestoreCommand;
+use Mifesta\DotenvEditor\Console\Commands\DotenvSetKeyCommand;
 
-/**
- * DotenvEditorServiceProvider
- *
- * @package Mifesta\DotenvEditor
- */
 class DotenvEditorServiceProvider extends ServiceProvider
 {
     /**
-     * Indicates if loading of the provider is deferred.
-     *
-     * @var bool
-     */
-    protected $defer = false;
-
-    /**
-     * Bootstrap the application events.
-     */
-    public function boot()
-    {
-        /**
-         * Loading and publishing package's config
-         */
-        $packageConfigPath = __DIR__.'/../config/config.php';
-        $appConfigPath = config_path('dotenv-editor.php');
-
-        $this->mergeConfigFrom($packageConfigPath, 'dotenv-editor');
-
-        $this->publishes([
-            $packageConfigPath => $appConfigPath,
-        ], 'config');
-    }
-
-    /**
-     * Register the service provider.
+     * @return void
      */
     public function register()
     {
-        $this->app->bind('dotenv-editor', 'Mifesta\DotenvEditor\DotenvEditor');
-
+        $this->mergeConfigFrom(__DIR__.'/../config/config.php', 'dotenv-editor');
+        $this->app->bind('dotenv-editor', DotenvEditor::class);
         $this->registerCommands();
     }
 
     /**
-     * Register commands
+     * @return void
      */
-    protected function registerCommands()
+    public function boot()
     {
-        $this->app->bind('command.dotenv.backup', 'Mifesta\DotenvEditor\Console\Commands\DotenvBackupCommand');
-        $this->app->bind('command.dotenv.deletekey', 'Mifesta\DotenvEditor\Console\Commands\DotenvDeleteKeyCommand');
-        $this->app->bind('command.dotenv.getbackups', 'Mifesta\DotenvEditor\Console\Commands\DotenvGetBackupsCommand');
-        $this->app->bind('command.dotenv.getkeys', 'Mifesta\DotenvEditor\Console\Commands\DotenvGetKeysCommand');
-        $this->app->bind('command.dotenv.restore', 'Mifesta\DotenvEditor\Console\Commands\DotenvRestoreCommand');
-        $this->app->bind('command.dotenv.setkey', 'Mifesta\DotenvEditor\Console\Commands\DotenvSetKeyCommand');
-
-        $this->commands('command.dotenv.backup');
-        $this->commands('command.dotenv.deletekey');
-        $this->commands('command.dotenv.getbackups');
-        $this->commands('command.dotenv.getkeys');
-        $this->commands('command.dotenv.restore');
-        $this->commands('command.dotenv.setkey');
+        $this->publishes([
+            __DIR__.'/../config/config.php' => config_path('dotenv-editor.php'),
+        ], 'config');
     }
 
     /**
-     * Get the services provided by the provider.
-     *
-     * @return array
+     * @return void
      */
-    public function provides()
+    protected function registerCommands()
     {
-        return [
-            'dotenv-editor',
-            'command.dotenv.backup',
-            'command.dotenv.deletekey',
-            'command.dotenv.getbackups',
-            'command.dotenv.getkeys',
-            'command.dotenv.restore',
-            'command.dotenv.setkey',
-        ];
+        $this->commands([
+            DotenvBackupCommand::class,
+            DotenvDeleteKeyCommand::class,
+            DotenvGetBackupsCommand::class,
+            DotenvGetKeysCommand::class,
+            DotenvRestoreCommand::class,
+            DotenvSetKeyCommand::class,
+        ]);
     }
 }

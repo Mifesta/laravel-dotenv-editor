@@ -38,26 +38,21 @@ class DotenvGetBackupsCommand extends Command
     public function fire()
     {
         $headers = ['File name', 'File path', 'Created at'];
-        $backups = ($this->option('latest')) ? [$this->editor->getLatestBackup()] : $this->editor->getBackups();
 
         if ($this->option('latest')) {
             $latest = $this->editor->getLatestBackup();
-            if (! is_null($latest)) {
-                $backups = [$latest];
-                $total = 1;
-            } else {
-                $total = 0;
-            }
+            $backups = $latest === null ? [] : [$latest];
         } else {
             $backups = $this->editor->getBackups();
-            $total = count($backups);
         }
+
+        $total = count($backups);
 
         $this->line('Loading backup files...');
         $this->line('');
 
         if ($total == 0) {
-            $this->info("You have not any backup file");
+            $this->info('There are no backup files.');
         } elseif ($total == 1) {
             $this->table($headers, $backups);
             $this->line('');

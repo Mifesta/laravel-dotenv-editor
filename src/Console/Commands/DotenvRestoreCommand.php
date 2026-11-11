@@ -43,7 +43,7 @@ class DotenvRestoreCommand extends Command
      *
      * @var string|null
      */
-    protected $retorePath = null;
+    protected $restorePath = null;
 
     /**
      * Execute the console command.

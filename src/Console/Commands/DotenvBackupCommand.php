@@ -51,6 +51,12 @@ class DotenvBackupCommand extends Command
 
         $backup = $this->editor->load($this->filePath)->backup()->getLatestBackup();
 
+        if ($backup === null) {
+            $this->error('The backup file was not created.');
+
+            return 1;
+        }
+
         $this->info("Your file was backed up successfully at path [{$backup['filepath']}].");
         
         return 0;

@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static \Mifesta\DotenvEditor\DotenvEditor addEmpty()
  * @method static \Mifesta\DotenvEditor\DotenvEditor addComment(string $comment)
  * @method static \Mifesta\DotenvEditor\DotenvEditor setKeys(array $data)
- * @method static \Mifesta\DotenvEditor\DotenvEditor setKey(string $key, string|null $value = null, string|null $comment = null, bool $export = false)
+ * @method static \Mifesta\DotenvEditor\DotenvEditor setKey(string $key, string|null $value = null, string|null $comment = null, bool|null $export = null)
  * @method static \Mifesta\DotenvEditor\DotenvEditor deleteKeys(array $keys = [])
  * @method static \Mifesta\DotenvEditor\DotenvEditor deleteKey(string $key)
  * @method static \Mifesta\DotenvEditor\DotenvEditor save()

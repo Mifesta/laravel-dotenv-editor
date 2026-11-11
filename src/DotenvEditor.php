@@ -2,90 +2,65 @@
 
 namespace Mifesta\DotenvEditor;
 
-use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Config\Repository as Config;
+use Illuminate\Contracts\Container\Container;
 use Mifesta\DotenvEditor\Exceptions\FileNotFoundException;
 use Mifesta\DotenvEditor\Exceptions\KeyNotFoundException;
 use Mifesta\DotenvEditor\Exceptions\NoBackupAvailableException;
+use Mifesta\DotenvEditor\Exceptions\UnableWriteToFileException;
 
 /**
  * The DotenvEditor class.
- *
- * @package Mifesta\DotenvEditor
  */
 class DotenvEditor
 {
     /**
-     * The IoC Container
-     *
-     * @var \Illuminate\Container\Container
+     * @var Container
      */
     protected $app;
 
     /**
-     * Store instance of Config Repository;
-     *
-     * @var \Illuminate\Config\Repository
+     * @var Config
      */
     protected $config;
 
     /**
-     * The formatter instance
-     *
-     * @var \Mifesta\DotenvEditor\DotenvFormatter
+     * @var DotenvFormatter
      */
     protected $formatter;
 
     /**
-     * The reader instance
-     *
-     * @var \Mifesta\DotenvEditor\DotenvReader
+     * @var DotenvReader
      */
     protected $reader;
 
     /**
-     * The writer instance
-     *
-     * @var \Mifesta\DotenvEditor\DotenvWriter
+     * @var DotenvWriter
      */
     protected $writer;
 
     /**
-     * The file path
-     *
-     * @var string
+     * @var string|null
      */
     protected $filePath;
 
     /**
-     * The auto backup status
-     *
      * @var bool
      */
     protected $autoBackup;
 
     /**
-     * The backup path
-     *
      * @var string
      */
     protected $backupPath;
 
-    /**
-     * The backup filename prefix
-     */
     const BACKUP_FILENAME_PREFIX = '.env.backup_';
 
-    /**
-     * The backup filename suffix
-     */
     const BACKUP_FILENAME_SUFFIX = '';
 
     /**
-     * Create a new DotenvEditor instance
-     *
-     * @param \Illuminate\Contracts\Container\Container $app
-     * @param \Illuminate\Contracts\Config\Repository $config
+     * @param Container $app
+     * @param Config $config
      */
     public function __construct(Container $app, Config $config)
     {
@@ -97,7 +72,7 @@ class DotenvEditor
 
         $backupPath = $this->config->get('dotenv-editor.backupPath');
 
-        if (is_null($backupPath)) {
+        if ($backupPath === null || $backupPath === '') {
             if (function_exists('base_path')) {
                 $backupPath = base_path('storage/dotenv-editor/backups/');
             } else {
@@ -105,71 +80,60 @@ class DotenvEditor
             }
         }
 
-        if (! is_dir($backupPath)) {
-            mkdir($backupPath, 0777, true);
-            copy(__DIR__.'/../stubs/gitignore.txt', $backupPath.'../.gitignore');
-        }
-
-        $this->backupPath = $backupPath;
-        $this->autoBackup = $this->config->get('dotenv-editor.autoBackup', true);
-
+        $this->backupPath = rtrim($backupPath, "/\\").DIRECTORY_SEPARATOR;
+        $this->ensureBackupDirectory();
+        $this->autoBackup = (bool) $this->config->get('dotenv-editor.autoBackup', true);
         $this->load();
     }
 
     /**
      * Load file for working
      *
-     * @param string|null $filePath The file path
-     * @param bool $restoreIfNotFound Restore this file from other file if it's not found
-     * @param string|null $restorePath The file path you want to restore from
+     * @param string|null $filePath
+     * @param bool $restoreIfNotFound
+     * @param string|null $restorePath
      * @return DotenvEditor
      */
     public function load($filePath = null, $restoreIfNotFound = false, $restorePath = null)
     {
         $this->resetContent();
 
-        if (! is_null($filePath)) {
+        if ($filePath !== null) {
             $this->filePath = $filePath;
+        } elseif (method_exists($this->app, 'environmentPath') && method_exists($this->app, 'environmentFile')) {
+            $this->filePath = $this->app->environmentPath().DIRECTORY_SEPARATOR.$this->app->environmentFile();
         } else {
-            if (method_exists($this->app, 'environmentPath') && method_exists($this->app, 'environmentFile')) {
-                $this->filePath = $this->app->environmentPath().'/'.$this->app->environmentFile();
-            } else {
-                $this->filePath = __DIR__.'/../../../../.env';
-            }
+            $this->filePath = __DIR__.'/../../../../.env';
         }
 
         $this->reader->load($this->filePath);
 
-        if (file_exists($this->filePath)) {
+        if (is_file($this->filePath)) {
             $this->writer->setBuffer($this->getContent());
 
             return $this;
-        } elseif ($restoreIfNotFound) {
-            return $this->restore($restorePath);
-        } else {
-            return $this;
         }
+
+        if ($restoreIfNotFound) {
+            return $this->restore($restorePath);
+        }
+
+        $this->writer->setBuffer('');
+
+        return $this;
     }
 
     /**
-     * Reset content for editor
+     * @return void
      */
     protected function resetContent()
     {
         $this->filePath = null;
         $this->reader->load(null);
-        $this->writer->setBuffer(null);
+        $this->writer->setBuffer('');
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Working with reading
-    |--------------------------------------------------------------------------
-    */
-
     /**
-     * Get raw content of file
-     *
      * @return string
      */
     public function getContent()
@@ -178,8 +142,6 @@ class DotenvEditor
     }
 
     /**
-     * Get all lines from file
-     *
      * @return array
      */
     public function getLines()
@@ -188,8 +150,6 @@ class DotenvEditor
     }
 
     /**
-     * Get all or exists given keys in file content
-     *
      * @param array $keys
      * @return array
      */
@@ -199,7 +159,7 @@ class DotenvEditor
 
         return array_filter($allKeys, function ($key) use ($keys) {
             if (! empty($keys)) {
-                return in_array($key, $keys);
+                return in_array($key, $keys, true);
             }
 
             return true;
@@ -207,46 +167,31 @@ class DotenvEditor
     }
 
     /**
-     * Check, if a given key is exists in the file content
-     *
-     * @param string $keys
+     * @param string $key
      * @return bool
      */
     public function keyExists($key)
     {
-        $allKeys = $this->getKeys();
-        if (array_key_exists($key, $allKeys)) {
-            return true;
-        }
-
-        return false;
+        return array_key_exists($key, $this->getKeys());
     }
 
     /**
-     * Return the value matching to a given key in the file content
-     *
      * @param string $key
      * @return string
-     * @throws \Mifesta\DotenvEditor\Exceptions\KeyNotFoundException
+     * @throws KeyNotFoundException
      */
     public function getValue($key)
     {
         $allKeys = $this->getKeys([$key]);
+
         if (array_key_exists($key, $allKeys)) {
             return $allKeys[$key]['value'];
         }
+
         throw new KeyNotFoundException('Requested key not found in your file.');
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Working with writing
-    |--------------------------------------------------------------------------
-    */
-
     /**
-     * Return content in buffer
-     *
      * @return string
      */
     public function getBuffer()
@@ -255,8 +200,6 @@ class DotenvEditor
     }
 
     /**
-     * Add empty line to buffer
-     *
      * @return DotenvEditor
      */
     public function addEmpty()
@@ -267,8 +210,6 @@ class DotenvEditor
     }
 
     /**
-     * Add comment line to buffer
-     *
      * @param string $comment
      * @return DotenvEditor
      */
@@ -280,80 +221,86 @@ class DotenvEditor
     }
 
     /**
-     * Set many keys to buffer
-     *
      * @param array $data
      * @return DotenvEditor
      */
     public function setKeys(array $data)
     {
         foreach ($data as $setter) {
-            if (array_key_exists('key', $setter)) {
-                $key = $this->formatter->formatKey($setter['key']);
-                $value = array_key_exists('value', $setter) ? $setter['value'] : null;
-                $comment = array_key_exists('comment', $setter) ? $setter['comment'] : null;
-                $export = array_key_exists('export', $setter) ? $setter['export'] : false;
-
-                if (! is_file($this->filePath) || ! $this->keyExists($key)) {
-                    $this->writer->appendSetter($key, $value, $comment, $export);
-                } else {
-                    $oldInfo = $this->getKeys([$key]);
-                    $comment = is_null($comment) ? $oldInfo[$key]['comment'] : $comment;
-                    $this->writer->updateSetter($key, $value, $comment, $export);
-                }
+            if (! is_array($setter) || ! array_key_exists('key', $setter)) {
+                continue;
             }
+
+            $key = $this->formatter->formatKey($setter['key']);
+
+            if ($key === '') {
+                continue;
+            }
+
+            $value = array_key_exists('value', $setter) ? $setter['value'] : null;
+            $comment = array_key_exists('comment', $setter) ? $setter['comment'] : null;
+            $export = array_key_exists('export', $setter) ? $setter['export'] : null;
+            $existing = $this->findBufferedSetter($key);
+
+            if ($existing === null) {
+                $this->writer->appendSetter($key, $value, $comment, $export === null ? false : (bool) $export);
+                continue;
+            }
+
+            if ($comment === null) {
+                $comment = $existing['comment'];
+            }
+
+            if ($export === null) {
+                $export = $existing['export'];
+            }
+
+            $this->writer->updateSetter($key, $value, $comment, (bool) $export);
         }
 
         return $this;
     }
 
     /**
-     * Set one key to buffer
+     * Set one key in the buffer.
      *
-     * @param string $key Key name of setter
-     * @param string|null $value Value of setter
-     * @param string|null $comment Comment of setter
-     * @param bool $export Leading key name by "export "
+     * A null comment keeps the comment already stored for that key.
+     * A null export flag keeps the current export prefix on update and omits it for a new key.
+     *
+     * @param string $key
+     * @param string|null $value
+     * @param string|null $comment
+     * @param bool|null $export
      * @return DotenvEditor
      */
-    public function setKey($key, $value = null, $comment = null, $export = false)
+    public function setKey($key, $value = null, $comment = null, $export = null)
     {
-        $data = [compact('key', 'value', 'comment', 'export')];
-
-        return $this->setKeys($data);
+        return $this->setKeys([compact('key', 'value', 'comment', 'export')]);
     }
 
     /**
-     * Delete many keys in buffer
-     *
      * @param array $keys
      * @return DotenvEditor
      */
     public function deleteKeys(array $keys = [])
     {
         foreach ($keys as $key) {
-            $this->writer->deleteSetter($key);
+            $this->writer->deleteSetter($this->formatter->formatKey($key));
         }
 
         return $this;
     }
 
     /**
-     * Delete on key in buffer
-     *
      * @param string $key
      * @return DotenvEditor
      */
     public function deleteKey($key)
     {
-        $keys = [$key];
-
-        return $this->deleteKeys($keys);
+        return $this->deleteKeys([$key]);
     }
 
     /**
-     * Save buffer to file
-     *
      * @return DotenvEditor
      */
     public function save()
@@ -367,15 +314,7 @@ class DotenvEditor
         return $this;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Working with backups
-    |--------------------------------------------------------------------------
-    */
-
     /**
-     * Switching of the auto backup mode
-     *
      * @param bool $on
      * @return DotenvEditor
      */
@@ -387,125 +326,152 @@ class DotenvEditor
     }
 
     /**
-     * Create one backup of loaded file
-     *
      * @return DotenvEditor
+     * @throws FileNotFoundException
+     * @throws UnableWriteToFileException
      */
     public function backup()
     {
         if (! is_file($this->filePath)) {
-            throw new FileNotFoundException("File does not exist at path {$this->filePath}");
-
-            return false;
+            throw new FileNotFoundException('File does not exist at path '.$this->filePath);
         }
 
-        copy($this->filePath, $this->backupPath.self::BACKUP_FILENAME_PREFIX.date('Y_m_d_His').self::BACKUP_FILENAME_SUFFIX);
+        if (! $this->ensureBackupDirectory() || ! is_writable($this->backupPath)) {
+            throw new UnableWriteToFileException('Unable to write a backup in '.$this->backupPath);
+        }
+
+        $stamp = date('Y_m_d_His');
+        $sequence = 0;
+
+        do {
+            if ($sequence > 1000) {
+                throw new UnableWriteToFileException('Unable to choose a backup file name.');
+            }
+
+            $suffix = $sequence === 0 ? '' : '_'.$sequence;
+            $destination = $this->backupPath.self::BACKUP_FILENAME_PREFIX.$stamp.$suffix.self::BACKUP_FILENAME_SUFFIX;
+            $sequence++;
+        } while (is_file($destination));
+
+        if (! @copy($this->filePath, $destination)) {
+            throw new UnableWriteToFileException('Unable to copy the backup to '.$destination);
+        }
 
         return $this;
     }
 
     /**
-     * Return an array with all available backups
-     *
      * @return array
      */
     public function getBackups()
     {
-        $backups = array_diff(scandir($this->backupPath), ['..', '.']);
-        $output = [];
+        if (! is_dir($this->backupPath)) {
+            return [];
+        }
 
-        foreach ($backups as $backup) {
-            $filenamePrefix = preg_quote(self::BACKUP_FILENAME_PREFIX, '/');
-            $filenameSuffix = preg_quote(self::BACKUP_FILENAME_SUFFIX, '/');
-            $filenameRegex = '/^'.$filenamePrefix.'(\d{4})_(\d{2})_(\d{2})_(\d{2})(\d{2})(\d{2})'.$filenameSuffix.'$/';
+        $entries = scandir($this->backupPath);
 
-            $datetime = preg_replace($filenameRegex, '$1-$2-$3 $4:$5:$6', $backup);
+        if ($entries === false) {
+            return [];
+        }
 
-            $data = [
+        $rows = [];
+
+        foreach ($entries as $backup) {
+            if (! preg_match($this->backupFilenamePattern(), $backup, $matches)) {
+                continue;
+            }
+
+            $rows[] = [
                 'filename' => $backup,
                 'filepath' => $this->backupPath.$backup,
-                'created_at' => $datetime,
+                'created_at' => $matches[1].'-'.$matches[2].'-'.$matches[3].' '.$matches[4].':'.$matches[5].':'.$matches[6],
+                'stamp' => $matches[1].$matches[2].$matches[3].$matches[4].$matches[5].$matches[6],
+                'seq' => isset($matches[7]) && $matches[7] !== '' ? (int) $matches[7] : 0,
             ];
+        }
 
-            $output[] = $data;
+        usort($rows, function ($left, $right) {
+            if ($left['stamp'] === $right['stamp']) {
+                return $left['seq'] <=> $right['seq'];
+            }
+
+            return strcmp($left['stamp'], $right['stamp']);
+        });
+
+        $output = [];
+
+        foreach ($rows as $row) {
+            $output[] = [
+                'filename' => $row['filename'],
+                'filepath' => $row['filepath'],
+                'created_at' => $row['created_at'],
+            ];
         }
 
         return $output;
     }
 
     /**
-     * Return the information of the latest backup file
-     *
-     * @return array
+     * @return array|null
      */
     public function getLatestBackup()
     {
         $backups = $this->getBackups();
 
-        if (empty($backups)) {
+        if ($backups === []) {
             return null;
         }
 
-        $latestBackup = 0;
-        foreach ($backups as $backup) {
-            $timestamp = strtotime($backup['created_at']);
-            if ($timestamp > $latestBackup) {
-                $latestBackup = $timestamp;
-            }
-        }
-
-        $fileName = self::BACKUP_FILENAME_PREFIX.date("Y_m_d_His", $latestBackup).self::BACKUP_FILENAME_SUFFIX;
-        $filePath = $this->backupPath.$fileName;
-        $createdAt = date("Y-m-d H:i:s", $latestBackup);
-
-        $output = [
-            'filename' => $fileName,
-            'filepath' => $filePath,
-            'created_at' => $createdAt,
-        ];
-
-        return $output;
+        return $backups[count($backups) - 1];
     }
 
     /**
-     * Restore the loaded file from latest backup file or from special file.
-     *
      * @param string|null $filePath
      * @return DotenvEditor
-	 * @throws \Mifesta\DotenvEditor\Exceptions\FileNotFoundException
-	 * @throws \Mifesta\DotenvEditor\Exceptions\NoBackupAvailableException
-	 */
+     * @throws FileNotFoundException
+     * @throws NoBackupAvailableException
+     * @throws UnableWriteToFileException
+     */
     public function restore($filePath = null)
     {
-        if (is_null($filePath)) {
+        if ($filePath === null) {
             $latestBackup = $this->getLatestBackup();
-            if (is_null($latestBackup)) {
-                throw new NoBackupAvailableException("There are no available backups!");
+
+            if ($latestBackup === null) {
+                throw new NoBackupAvailableException('There are no available backups!');
             }
+
             $filePath = $latestBackup['filepath'];
         }
 
         if (! is_file($filePath)) {
-            throw new FileNotFoundException("File does not exist at path {$filePath}");
+            throw new FileNotFoundException('File does not exist at path '.$filePath);
         }
 
-        copy($filePath, $this->filePath);
+        $directory = dirname($this->filePath);
+
+        if (! is_dir($directory) && ! @mkdir($directory, 0755, true) && ! is_dir($directory)) {
+            throw new UnableWriteToFileException('Unable to restore the file to '.$this->filePath);
+        }
+
+        if (! @copy($filePath, $this->filePath)) {
+            throw new UnableWriteToFileException('Unable to restore the file to '.$this->filePath);
+        }
+
         $this->writer->setBuffer($this->getContent());
 
         return $this;
     }
 
     /**
-     * Delete all or the given backup files
-     *
      * @param array $filePaths
      * @return DotenvEditor
      */
     public function deleteBackups(array $filePaths = [])
     {
-        if (empty($filePaths)) {
-            $allBackups = $this->getBackups();
-            foreach ($allBackups as $backup) {
+        if ($filePaths === []) {
+            foreach ($this->getBackups() as $backup) {
                 $filePaths[] = $backup['filepath'];
             }
         }
@@ -520,13 +486,65 @@ class DotenvEditor
     }
 
     /**
-     * Delete the given backup file
-     *
      * @param string $filePath
      * @return DotenvEditor
      */
     public function deleteBackup($filePath)
     {
         return $this->deleteBackups([$filePath]);
+    }
+
+    /**
+     * Look at the unsaved buffer, not the file on disk.
+     *
+     * @param string $key
+     * @return array|null
+     */
+    protected function findBufferedSetter($key)
+    {
+        $buffer = $this->writer->getBuffer();
+
+        if ($buffer === '') {
+            return null;
+        }
+
+        foreach (preg_split("/\r\n|\n|\r/", $buffer) as $line) {
+            $parsed = $this->formatter->parseLine($line);
+
+            if ($parsed['type'] === 'setter' && $parsed['key'] === $key) {
+                return $parsed;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return bool
+     */
+    protected function ensureBackupDirectory()
+    {
+        if (! is_dir($this->backupPath) && ! @mkdir($this->backupPath, 0755, true) && ! is_dir($this->backupPath)) {
+            return false;
+        }
+
+        $gitignore = dirname(rtrim($this->backupPath, "/\\")).DIRECTORY_SEPARATOR.'.gitignore';
+
+        if (! is_file($gitignore)) {
+            @copy(__DIR__.'/../stubs/gitignore.txt', $gitignore);
+        }
+
+        return true;
+    }
+
+    /**
+     * @return string
+     */
+    protected function backupFilenamePattern()
+    {
+        $prefix = preg_quote(self::BACKUP_FILENAME_PREFIX, '/');
+        $suffix = preg_quote(self::BACKUP_FILENAME_SUFFIX, '/');
+
+        return '/^'.$prefix.'(\d{4})_(\d{2})_(\d{2})_(\d{2})(\d{2})(\d{2})(?:_(\d+))?'.$suffix.'$/';
     }
 }

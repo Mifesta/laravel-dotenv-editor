@@ -50,7 +50,7 @@ class DotenvSetKeyCommand extends Command
      *
      * @var string|null
      */
-    protected $retorePath = null;
+    protected $restorePath = null;
 
     /**
      * The key name use to add or update
@@ -74,11 +74,11 @@ class DotenvSetKeyCommand extends Command
     protected $comment = null;
 
     /**
-     * Determine leading the key with 'export '
+     * Determine leading the key with 'export '. Null keeps the current prefix.
      *
-     * @var bool
+     * @var bool|null
      */
-    protected $exportKey = false;
+    protected $exportKey = null;
 
     /**
      * Execute the console command.
@@ -99,7 +99,8 @@ class DotenvSetKeyCommand extends Command
         $this->editor->setKey($this->key, $this->value, $this->comment, $this->exportKey);
         $this->editor->save();
 
-        $this->info("The key [{$this->key}] is setted successfully with value [{$this->value}].");
+        $shown = $this->value === null ? '' : $this->value;
+        $this->info("The key [{$this->key}] is set to [{$shown}].");
         
         return 0;
     }
@@ -118,9 +119,18 @@ class DotenvSetKeyCommand extends Command
         $this->restorePath = (is_string($restorePath)) ? base_path($restorePath) : null;
 
         $this->key = $this->argument('key');
-        $this->value = $this->stringToType($this->argument('value'));
-        $this->comment = $this->stringToType($this->argument('comment'));
-        $this->exportKey = $this->option('export-key');
+
+        $value = $this->argument('value');
+        $this->value = $value === null ? null : (string) $value;
+
+        $comment = $this->argument('comment');
+        if (is_string($comment) && ($comment === 'false' || $comment === 'FALSE')) {
+            $this->comment = '';
+        } else {
+            $this->comment = $comment === null ? null : (string) $comment;
+        }
+
+        $this->exportKey = $this->option('export-key') ? true : null;
     }
 
     /**
